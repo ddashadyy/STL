@@ -1,5 +1,4 @@
-#ifndef OWN_VECTOR_H
-#define OWN_VECTOR_H
+#pragma once 
 
 // CXX20
 
@@ -680,5 +679,4 @@ constexpr typename vector<T, Allocator>::iterator vector<T, Allocator>::emplace(
 
 
 
-#endif //! OWN_VECTOR_H
 
