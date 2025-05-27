@@ -6,3 +6,4 @@ CMakeCache.txt
 Makefile
 build*
 main.cpp
+.clangd
