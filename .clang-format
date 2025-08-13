@@ -1,0 +1,41 @@
+---
+Language: Cpp
+BasedOnStyle: LLVM  # Явно отключаем все предустановки
+
+# Жёсткие настройки для скобок
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterClass: true
+  AfterStruct: true
+  AfterFunction: true
+  AfterControlStatement: Always
+  AfterEnum: true
+  AfterUnion: true
+  BeforeElse: true
+  BeforeCatch: true
+  IndentBraces: false
+  SplitEmptyRecord: false
+  SplitEmptyFunction: false
+
+# Конкретно для if-else
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+IndentCaseLabels: false
+
+# Отступы
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+
+# Указатели
+PointerAlignment: Left
+ReferenceAlignment: Left
+
+# Шаблоны
+AlwaysBreakTemplateDeclarations: Yes
+SpaceAfterTemplateKeyword: true
+# SpacesInAngles: true
+
+# Модификаторы доступа
+AccessModifierOffset: -4
+...
