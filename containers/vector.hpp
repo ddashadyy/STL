@@ -183,6 +183,113 @@ public:
     }
 
 private:
+    pointer allocate(size_type count)
+    {
+        return std::allocator_traits<Allocator>::allocate(alloc_, count);
+    }
+
+    void deallocate(pointer ptr, size_type count)
+    {
+        std::allocator_traits<Allocator>::deallocate(alloc_, ptr, count);
+    }
+
+    template <class... Args>
+    void construct(pointer ptr, Args&&... args)
+    {
+        std::allocator_traits<Allocator>::construct(
+            alloc_, ptr, std::forward<Args>(args)...);
+    }
+
+    void destroy(pointer ptr)
+    {
+        std::allocator_traits<Allocator>::destroy(alloc_, ptr);
+    }
+
+    void destroy_range(pointer first, pointer last)
+    {
+        for (; first != last; ++first)
+            destroy(first);
+    }
+
+    void initialize_with_count(size_type count, const T& value = T())
+    {
+        if (count > 0)
+        {
+            auto allocated_ptr = allocate(count);
+            auto current = allocated_ptr;
+
+            try
+            {
+                for (; current != allocated_ptr + count; ++current)
+                    construct(current, value);
+
+                begin_ = allocated_ptr;
+                end_ = end_cap_ = allocated_ptr + count;
+            }
+            catch (...)
+            {
+                destroy_range(allocated_ptr, current);
+                deallocate(allocated_ptr, count);
+
+                throw;
+            }
+        }
+    }
+
+    template <class InputIt>
+    void initialize_from_input_it(InputIt first, InputIt last)
+    {
+        while (first != last)
+        {
+            if (end_ == end_cap_)
+            {
+                const size_type new_cap =
+                    (capacity() == 0) ? 1 : capacity() * 2;
+                reserve(new_cap);
+            }
+            construct(end_, *first);
+
+            ++end_;
+            ++first;
+        }
+    }
+
+    template <class ForwardIt>
+    void initialize_from_forward_it(ForwardIt first, ForwardIt last)
+    {
+        const size_type count = std::distance(first, last);
+        if (count > 0)
+        {
+            auto allocated_ptr = allocate(count);
+            auto current = allocated_ptr;
+
+            try
+            {
+                for (; first != last; ++first, ++current)
+                    construct(current, *first);
+
+                begin_ = allocated_ptr;
+                end_ = end_cap_ = allocated_ptr + count;
+            }
+            catch (...)
+            {
+                destroy_range(allocated_ptr, current);
+                deallocate(allocated_ptr, count);
+
+                throw;
+            }
+        }
+    }
+
+    void move_resources(vector&& other) noexcept
+    {
+        begin_ = other.begin_;
+        end_ = other.end_;
+        end_cap_ = other.end_cap_;
+
+        other.begin_ = other.end_ = other.end_cap_ = nullptr;
+    }
+
     pointer begin_ = nullptr;
     pointer end_ = nullptr;
     pointer end_cap_ = nullptr;
@@ -197,43 +304,7 @@ template <class T, class Allocator>
 constexpr vector<T, Allocator>::vector(size_type count, const Allocator& alloc)
     : alloc_(alloc)
 {
-    using traits = std::allocator_traits<Allocator>;
-
-    if (count > 0)
-    {
-        pointer allocated_ptr = nullptr;
-        try
-        {
-            allocated_ptr = traits::allocate(alloc_, count);
-            pointer current = allocated_ptr;
-
-            try
-            {
-                for (; current != allocated_ptr + count; ++current)
-                    traits::construct(alloc_, current);
-            }
-            catch (...)
-            {
-                for (auto* it = allocated_ptr; it != current; ++it)
-                    traits::destroy(alloc_, it);
-
-                throw;
-            }
-
-            begin_ = allocated_ptr;
-            end_ = end_cap_ = allocated_ptr + count;
-        }
-
-        catch (...)
-        {
-            traits::deallocate(alloc_, allocated_ptr, count);
-
-            throw;
-        }
-    }
-
-    else
-        begin_ = end_ = end_cap_ = nullptr;
+    initialize_with_count(count);
 }
 
 template <class T, class Allocator>
@@ -241,43 +312,7 @@ constexpr vector<T, Allocator>::vector(size_type count, const T& value,
                                        const Allocator& alloc)
     : alloc_(alloc)
 {
-    using traits = std::allocator_traits<Allocator>;
-
-    if (count > 0)
-    {
-        pointer allocated_ptr = nullptr;
-        try
-        {
-            allocated_ptr = traits::allocate(alloc_, count);
-            pointer current = allocated_ptr;
-
-            try
-            {
-                for (; current != allocated_ptr + count; ++current)
-                    traits::construct(alloc_, current, value);
-            }
-            catch (...)
-            {
-                for (auto* it = allocated_ptr; it != current; ++it)
-                    traits::destroy(alloc_, it);
-
-                throw;
-            }
-
-            begin_ = allocated_ptr;
-            end_ = end_cap_ = allocated_ptr + count;
-        }
-
-        catch (...)
-        {
-            traits::deallocate(alloc_, allocated_ptr, count);
-
-            throw;
-        }
-    }
-
-    else
-        begin_ = end_ = end_cap_ = nullptr;
+    initialize_with_count(count, value);
 }
 
 template <class T, class Allocator>
@@ -287,75 +322,15 @@ constexpr vector<T, Allocator>::vector(InputIt first, InputIt last,
     : alloc_(alloc)
 {
 
-    using traits = std::allocator_traits<Allocator>;
-
     if constexpr (std::is_base_of_v<std::forward_iterator_tag,
                                     typename std::iterator_traits<
                                         InputIt>::iterator_category>)
     {
-        const size_type count = std::distance(first, last);
-        if (count > 0)
-        {
-            pointer allocated_ptr = nullptr;
-            try
-            {
-                allocated_ptr = traits::allocate(alloc_, count);
-                pointer current = allocated_ptr;
-
-                try
-                {
-                    for (; first != last; ++current, ++first)
-                        traits::construct(alloc_, current, *first);
-                }
-                catch (...)
-                {
-                    for (auto* it = allocated_ptr; it != current; ++it)
-                        traits::destroy(alloc_, it);
-
-                    throw;
-                }
-
-                begin_ = allocated_ptr;
-                end_ = end_cap_ = allocated_ptr + count;
-            }
-            catch (...)
-            {
-                traits::deallocate(alloc_, allocated_ptr, count);
-
-                throw;
-            }
-        }
-        else
-            begin_ = end_ = end_cap_ = nullptr;
+        initialize_from_forward_it(first, last);
     }
     else
     {
-        try
-        {
-            while (first != last)
-            {
-                if (end_ == end_cap_)
-                {
-                    const size_type new_cap =
-                        (capacity() == 0) ? 1 : capacity() * 2;
-                    reserve(new_cap);
-                }
-
-                traits::construct(alloc_, end_, *first);
-                ++end_;
-                ++first;
-            }
-        }
-        catch (...)
-        {
-            for (auto* it = begin_; it != end_; ++it)
-                traits::destroy(alloc_, it);
-
-            if (begin_)
-                traits::deallocate(alloc_, begin_, capacity());
-
-            throw;
-        }
+        initialize_from_input_it(first, last);
     }
 }
 
@@ -364,48 +339,14 @@ constexpr vector<T, Allocator>::vector(const vector& other)
     : alloc_(std::allocator_traits<Allocator>::
                  select_on_container_copy_construction(other.get_allocator()))
 {
-    using traits = std::allocator_traits<Allocator>;
-
-    pointer allocated_ptr = nullptr;
-    try
-    {
-        allocated_ptr = traits::allocate(alloc_, other.capacity());
-        pointer current = allocated_ptr;
-
-        try
-        {
-            for (; current != allocated_ptr + other.size();
-                 ++current, ++other.begin_)
-                traits::construct(alloc_, current, *other.begin_);
-        }
-        catch (...)
-        {
-            for (auto* it = allocated_ptr; it != current; ++it)
-                traits::destroy(alloc_, it);
-
-            throw;
-        }
-
-        begin_ = allocated_ptr;
-        end_ = end_cap_ = allocated_ptr + other.capacity();
-    }
-    catch (...)
-    {
-        traits::deallocate(alloc_, allocated_ptr, other.capacity());
-
-        throw;
-    }
+    initialize_from_forward_it(other.begin_, other.end_);
 }
 
 template <class T, class Allocator>
 constexpr vector<T, Allocator>::vector(vector&& other) noexcept
     : alloc_(std::move(other.get_allocator()))
 {
-    begin_ = other.begin_;
-    end_ = other.end_;
-    end_cap_ = other.end_cap_;
-
-    other.begin_ = other.end_ = other.end_cap_ = nullptr;
+    move_resources(other);
 }
 
 template <class T, class Allocator>
@@ -413,37 +354,7 @@ constexpr vector<T, Allocator>::vector(const vector& other,
                                        const Allocator& alloc)
     : alloc_(alloc)
 {
-    using traits = std::allocator_traits<Allocator>;
-
-    pointer allocated_ptr = nullptr;
-    try
-    {
-        allocated_ptr = traits::allocate(alloc_, other.capacity());
-        pointer current = allocated_ptr;
-
-        try
-        {
-            for (; current != allocated_ptr + other.size();
-                 ++current, ++other.begin_)
-                traits::construct(alloc_, current, *other.begin_);
-        }
-        catch (...)
-        {
-            for (auto* it = allocated_ptr; it != current; ++it)
-                traits::destroy(alloc_, it);
-
-            throw;
-        }
-
-        begin_ = allocated_ptr;
-        end_ = end_cap_ = allocated_ptr + other.capacity();
-    }
-    catch (...)
-    {
-        traits::deallocate(alloc_, allocated_ptr, other.capacity());
-
-        throw;
-    }
+    initialize_from_forward_it(other.begin_, other.end_);
 }
 
 template <class T, class Allocator>
@@ -452,11 +363,7 @@ constexpr vector<T, Allocator>::vector(vector&& other, const Allocator& alloc)
 {
     if (alloc_ == other.get_allocator())
     {
-        begin_ = other.begin_;
-        end_ = other.end_;
-        end_cap_ = other.end_cap_;
-
-        other.begin_ = other.end_ = other.end_cap_ = nullptr;
+        move_resources(other);
     }
     else
     {
@@ -472,56 +379,145 @@ vector<T, Allocator>::vector(std::initializer_list<T> init,
                              const Allocator& alloc)
     : alloc_(alloc)
 {
-    using traits = std::allocator_traits<Allocator>;
-
-    const size_type count = std::distance(init.begin(), init.end());
-
-    pointer allocated_ptr = nullptr;
-    try
-    {
-        allocated_ptr = traits::allocate(alloc_, count);
-        pointer current = allocated_ptr;
-
-        try
-        {
-            for (auto it = init.begin(); it != init.end(); ++it, ++current)
-                traits::construct(alloc_, current, *it);
-        }
-        catch (...)
-        {
-            for (auto* it = allocated_ptr; it != current; ++it)
-                traits::destroy(alloc_, it);
-
-            throw;
-        }
-
-        begin_ = allocated_ptr;
-        end_ = end_cap_ = begin_ + count;
-    }
-    catch (...)
-    {
-        traits::deallocate(alloc_, allocated_ptr, count);
-
-        throw;
-    }
+    initialize_from_forward_it(init.begin(), init.end());
 }
 
 template <class T, class Allocator>
 constexpr vector<T, Allocator>::~vector()
 {
-    using traits = std::allocator_traits<Allocator>;
-
     if (begin_)
     {
-        for (auto* it = begin_; it != end_; ++it)
-            traits::destroy(alloc_, it);
-
-        traits::deallocate(alloc_, begin_, end_cap_ - begin_);
+        destroy_range(begin_, end_);
+        deallocate(begin_, capacity());
     }
 }
 
 template <class T, class Allocator>
 constexpr vector<T, Allocator>&
 vector<T, Allocator>::operator=(const vector& other)
-{}
+{
+    if (this != &other)
+    {
+        using traits = std::allocator_traits<Allocator>;
+
+        if constexpr (traits::propagate_on_container_copy_assignment::value)
+        {
+            allocator_type new_alloc = other.get_allocator();
+
+            if (new_alloc != alloc_)
+            {
+                destroy_range(begin_, end_);
+                deallocate(begin_, capacity());
+
+                alloc_ = new_alloc;
+                assign(other.begin(), other.end());
+            }
+            else
+                assign(other.begin(), other.end());
+        }
+        else
+            assign(other.begin(), other.end());
+    }
+
+    return *this;
+}
+
+template <class T, class Allocator>
+constexpr vector<T, Allocator>&
+vector<T, Allocator>::operator=(vector&& other) noexcept(
+    std::allocator_traits<
+        Allocator>::propagate_on_container_move_assignment::value ||
+    std::allocator_traits<Allocator>::is_always_equal::value)
+{
+    if (this != &other)
+    {
+        using traits = std::allocator_traits<Allocator>;
+
+        destroy_range(begin_, end_);
+        deallocate(begin_, capacity());
+
+        if constexpr (traits::propagate_on_container_move_assignment::value)
+        {
+            alloc_ = other.alloc_;
+            move_resources(other);
+        }
+        else
+        {
+            if (alloc_ == other.alloc_)
+                move_resources(other);
+            else
+            {
+                if (begin_)
+                {
+                    destroy_range(begin_, end_);
+                    deallocate(begin_, capacity());
+
+                    begin_ = end_ = end_cap_ = nullptr;
+                }
+
+                begin_ = allocate(other.size());
+                end_cap_ = begin_ + other.size();
+
+                auto current = begin_;
+
+                try
+                {
+                    for (; current != begin_ + other.size(); ++current)
+                        construct(current, std::move(*other.begin_++));
+
+                    end_ = current;
+
+                    other.end_ = other.begin_;
+                }
+                catch (...)
+                {
+                    destroy_range(begin_, current);
+                    if (begin_)
+                    {
+                        deallocate(begin_, capacity());
+                        begin_ = end_ = end_cap_ = nullptr;
+                    }
+
+                    throw;
+                }
+            }
+        }
+    }
+}
+
+template <class T, class Allocator>
+constexpr vector<T, Allocator>&
+vector<T, Allocator>::operator=(std::initializer_list<value_type> ilist)
+{
+    assign(ilist.begin(), ilist.end());
+
+    return *this;
+}
+
+template <class T, class Allocator>
+constexpr void vector<T, Allocator>::assign(size_type count, const T& value)
+{
+    destroy_range(begin_, end_);
+
+    if (count > capacity())
+    {
+        deallocate(begin_, capacity());
+        initialize_with_count(count, value);
+    }
+    else
+    {
+        std::fill_n(begin_, std::min(count, size()), value);
+
+        if (count > size())
+        {
+            for (pointer it = end_; it != begin_ + count; ++end_)
+                construct(it, value);
+        }
+        else
+        {
+            for (pointer it = begin_ + count; it != end_; ++it)
+                destroy(it);
+        }
+    }
+}
 } // namespace ownstl
